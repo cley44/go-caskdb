@@ -2,8 +2,10 @@ package caskdb
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
+	"time"
 )
 
 // DiskStore is a Log-Structured Hash Table as described in the BitCask paper. We
@@ -47,6 +49,8 @@ import (
 //	   	store.Set("othello", "shakespeare")
 //	   	author := store.Get("othello")
 type DiskStore struct {
+	file   *os.File
+	keyDir map[string]KeyEntry
 }
 
 func isFileExists(fileName string) bool {
@@ -58,17 +62,94 @@ func isFileExists(fileName string) bool {
 }
 
 func NewDiskStore(fileName string) (*DiskStore, error) {
-	panic("implement me")
+	var f *os.File
+	var err error
+	if isFileExists(fileName) {
+		f, err = os.Open(fileName)
+		if err != nil {
+			return nil, err
+		}
+		keydir := map[string]KeyEntry{}
+		fileOffset := int64(0)
+		for {
+			b := make([]byte, headerSize)
+			f.Seek(fileOffset, 0)
+			fileOffset += headerSize
+			n, err := f.Read(b)
+			if err == io.EOF {
+				// Reached end of file
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			timestamp, keySize, valueSize := decodeHeader(b[:n])
+			key := make([]byte, keySize)
+			// value := make([]byte, valueSize)
+			f.Seek(fileOffset, 0)
+			n, err = f.Read(key)
+			if err == io.EOF {
+				// Reached end of file
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			fileOffset += int64(keySize)
+			f.Seek(fileOffset, 0)
+			// f.Read(value)
+			fileOffset += int64(valueSize)
+
+			keydir[string(key[:n])] = KeyEntry{uint32(fileOffset) - valueSize - keySize - headerSize, headerSize + keySize + valueSize, timestamp}
+		}
+
+		return &DiskStore{file: f, keyDir: keydir}, nil
+	} else {
+		f, err = os.Create(fileName)
+		if err != nil {
+			return nil, err
+		}
+		return &DiskStore{file: f, keyDir: map[string]KeyEntry{}}, nil
+	}
 }
 
 func (d *DiskStore) Get(key string) string {
-	panic("implement me")
+	keyEntry, ok := d.keyDir[key]
+	if !ok {
+		return ""
+	}
+	b := make([]byte, keyEntry.totalSize)
+	d.file.Seek(int64(keyEntry.position), 0)
+	n, err := d.file.Read(b)
+	if err != nil {
+		panic(err)
+	}
+	_, key, value := decodeKV(b[:n])
+	return value
 }
 
 func (d *DiskStore) Set(key string, value string) {
-	panic("implement me")
+	currentTime := time.Now()
+	timestamp := uint32(currentTime.Unix())
+	n, byte_array := encodeKV(timestamp, key, value)
+	stats, err := d.file.Stat()
+	if err != nil {
+		panic(err)
+	}
+	sizeOfFile := stats.Size()
+	keyEntry := KeyEntry{uint32(sizeOfFile), uint32(n), timestamp}
+	d.keyDir[key] = keyEntry
+	d.file.Seek(0, 2)
+	_, err = d.file.Write(byte_array)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (d *DiskStore) Close() bool {
-	panic("implement me")
+	err := d.file.Close()
+	if err != nil {
+		return false
+	}
+	return true
 }

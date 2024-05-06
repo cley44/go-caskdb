@@ -65,10 +65,13 @@ const headerSize = 12
 // the byte offset in the file. Whenever we insert/update a key, we create a new
 // KeyEntry object and insert that into keyDir.
 type KeyEntry struct {
+	position  uint32
+	totalSize uint32
+	timestamp uint32
 }
 
 func NewKeyEntry(timestamp uint32, position uint32, totalSize uint32) KeyEntry {
-	panic("implement me")
+	return KeyEntry{position: position, totalSize: totalSize, timestamp: timestamp}
 }
 
 func i32tob(val uint32) []byte {
@@ -88,7 +91,7 @@ func btoi32(val []byte) uint32 {
 }
 
 func encodeHeader(timestamp uint32, keySize uint32, valueSize uint32) []byte {
-	r := make([]byte, headerSize)
+	r := make([]byte, 0, headerSize)
 	r = append(r, i32tob(timestamp)...)
 	r = append(r, i32tob(keySize)...)
 	r = append(r, i32tob(valueSize)...)
@@ -96,19 +99,7 @@ func encodeHeader(timestamp uint32, keySize uint32, valueSize uint32) []byte {
 }
 
 func decodeHeader(header []byte) (uint32, uint32, uint32) {
-	first := uint32(0)
-	second := uint32(0)
-	third := uint32(0)
-	for i := uint32(0); i < 4; i++ {
-		first |= uint32(header[i]) << (8 * i)
-	}
-	for i := uint32(4); i < 8; i++ {
-		second |= uint32(header[i]) << (8 * i)
-	}
-	for i := uint32(8); i < headerSize; i++ {
-		third |= uint32(header[i]) << (8 * i)
-	}
-	return first, second, third
+	return btoi32(header[0:4]), btoi32(header[4:8]), btoi32(header[8:12])
 }
 
 func encodeKV(timestamp uint32, key string, value string) (int, []byte) {
